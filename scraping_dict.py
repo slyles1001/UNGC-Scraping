@@ -4,7 +4,7 @@
 from bs4 import BeautifulSoup
 import urllib3, certifi, psycopg2, string
 from dateutil.parser import parse
-
+from timeit import default_timer as timer
 
 
 class db:
@@ -230,65 +230,6 @@ def add_worldbank_table():
 	database.close()
 	
 #add_worldbank_table()
-
-def count_by_years_table():
-	
-	# make a list of countries in the UNGC list
-	clist = []
-	# Fill cursor buffer
-	database = db()
-	database.query('select distinct country from ungc order by country;')
-	# dump cursor buffer into list
-
-	for line in database.query_results:
-		# country is a tuple, like ('country', ) so it needs the index
-		#print(line[0])
-		clist.append(line[0])
-		
-	# let's just start a new table
-	database.execute('drop table if exists BY_COUNTRY;')
-	database.execute("CREATE TABLE BY_COUNTRY (Country VARCHAR(250), Year INT, Firms INT, Sectors INT, Types INT, CPI INT);")
-	from timeit import default_timer as timer
-
-	start = timer()
-
-
-	def year_total_count(database, year, cry):
-		'''Returns query '''
-		st = "SELECT count(name), count(distinct sector), count(distinct org_type) from UNGC where date_joined < '%s' and date_due >= '%s' and country='%s' limit 20;" % (year, year+10000, cry)
-		database.query(st)
-		return(database.query_results)
-	
-	def get_cpi(database, yr, cry):
-		year = str(yr)[:4]
-		# the ~ is sql for expression matching, and * for case non sensitive
-		st = "SELECT val, country from CPI where year='%s' and country ~* '%s';" % (year, cry)
-		
-		database.query(st)
-		if len(database.query_results) == 0:
-			#print(cry)
-			pass
-		else:
-			print(cry, database.query_results[0])
-
-	for j in range(len(clist)):
-		cry = clist[j]
-		# ISO standard date format
-		yr = 19950101
-		for i in range(1,22):
-			#print(yr)
-			get_cpi(database, yr, cry)
-			# indexed because it's one tuple in a list
-			# df_postgres = year_total_count(database, yr, cry)[0]
-			# st = (cry, yr, df_postgres[0], df_postgres[1], df_postgres[2])
-			#print(df_postgres)
-			yr = yr + 10000
-
-	end = timer()
-
-	print(end - start)
-
-
 def add_CPI_table():
 	''' Adds CPI data from Transparency International. Not country rank though, not really useful for anything '''
 	# CPI_Final has the CPI data from TI, with 0 instead of blanks, 
@@ -320,6 +261,7 @@ def add_CPI_table():
 			c += l[i]
 			i += 1
 		c = "".join([ch for ch in c if ch not in string.punctuation])
+		c = c.lower()
 		return([c] + l[i:])
 	
 	with open("./CPI_Final.txt", 'r') as f:
@@ -346,10 +288,75 @@ def add_CPI_table():
 
 	database.commit()
 	database.close()
+
+def count_by_years_table():
+	
+	# make a list of countries in the UNGC list
+	clist = []
+	# Fill cursor buffer
+	database = db()
+	database.query('select distinct country from ungc order by country;')
+	# dump cursor buffer into list
+
+	for line in database.query_results:
+		# country is a tuple, like ('country', ) so it needs the index
+		#print(line[0])
+		clist.append(line[0])
+		
+	# let's just start a new table
+	database.execute('drop table if exists BY_COUNTRY;')
+	database.execute("CREATE TABLE BY_COUNTRY (Country VARCHAR(250), Year INT, Firms INT, Sectors INT, Types INT, CPI INT);")
+
+
+	start = timer()
+
+	print('before def')
+	def ungc_total_count(database, year, cry):
+		'''Returns query '''
+		st = "SELECT count(name), count(distinct sector), count(distinct org_type) from UNGC where date_joined < '%s' and date_due >= '%s' and country='%s';" % (year, year+10000, cry)
+		database.query(st)
+		return(database.query_results[0])
+	print('after 1st def')
+	def get_cpi(database, yr, cry):
+		year = str(yr)[:4]
+		# like works for CPI, let's hope world bank follows
+		st = "SELECT val from CPI where year='%s' and country ilike('%s');" % (year, cry)
+		database.query(st)
+		if len(database.query_results) == 0:
+			#print(cry)
+			return(False)
+		else:
+			return(database.query_results[0])
+
+	
+	print(len(clist))
+	for j in range(len(clist)):
+		cry = clist[j]
+		# ISO standard date format
+		yr = 19950101
+		for i in range(1,22):
+			#print(yr)
+			cpi_counts = get_cpi(database, yr, cry)
+			# indexed because it's one tuple in a list
+			ungc_counts = ungc_total_count(database, yr, cry)
+			if cpi_counts is not False:
+				year = int(str(yr)[:4])
+				st = (cry, year, ungc_counts[0], ungc_counts[1], ungc_counts[2], cpi_counts[0])
+				print(st)
+			yr = yr + 10000
+
+	end = timer()
+
+	print(end - start)
+
+
+count_by_years_table()
 	
 #add_CPI_table()
 #def get_category_links(section_url):
 
 
-
+ungc_db = db()
+st = "SELECT count(name), count(distinct sector), count(distinct org_type) from UNGC where date_joined < '%s' and date_due >= '%s' and country='%s' limit 20;" % (20100101, 20110101, 'brazil')
+ungc_db.query(st)
 
